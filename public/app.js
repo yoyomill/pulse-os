@@ -48,22 +48,75 @@ function toast(message) {
   window.__toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    let data = null;
+    try { data = await res.json(); } catch (_) { data = null; }
+    if (!res.ok || !data?.ok) {
+      const msg = data?.message || data?.error || `${res.status} ${res.statusText}`;
+      throw new Error(msg);
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchMarketPayload() {
+  const query = `symbol=${encodeURIComponent(state.symbol)}&interval=${encodeURIComponent(state.interval)}`;
+  const endpoints = [`/api/market?${query}`, `/.netlify/functions/market?${query}`];
+  let lastError;
+
+  for (const endpoint of endpoints) {
+    try {
+      return await fetchJsonWithTimeout(endpoint);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('Unable to reach market endpoint');
+}
+
+function showMarketError(message) {
+  const clean = String(message || 'Live market unavailable').slice(0, 140);
+  $('tickerBoard').innerHTML = `<span class="ticker-item error">Market data unavailable · ${clean}</span>`;
+  $('watchlistRows').innerHTML = '<div class="empty">No market rows loaded. Check Netlify Functions or open /api/health.</div>';
+  $('bookRows').innerHTML = '<div class="empty">Order book waiting for live data.</div>';
+  $('tradeRows').innerHTML = '<div class="empty">Recent trades waiting for live data.</div>';
+  $('moverChips').innerHTML = '<div class="empty">Top movers waiting for live data.</div>';
+}
+
 function savePositions() {
   localStorage.setItem('pulse_positions', JSON.stringify(state.positions));
 }
 
 async function loadMarket() {
   try {
-    toast('Refreshing live market...');
-    const res = await fetch(`/api/market?symbol=${state.symbol}&interval=${state.interval}`, { cache: 'no-store' });
-    const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.message || data.error || 'Market unavailable');
+    $('tickerBoard').innerHTML = '<span class="ticker-item skeleton">Loading live market...</span>';
+    const data = await fetchMarketPayload();
     state.market = data;
+    localStorage.setItem('pulse_last_market', JSON.stringify(data));
     renderAll();
-    toast('Live market updated');
+    toast(data.source === 'coingecko' ? 'Live market loaded via fallback feed' : 'Live market updated');
   } catch (error) {
     console.error(error);
-    toast('Live market unavailable. Try again later.');
+    const cached = localStorage.getItem('pulse_last_market');
+    if (cached) {
+      try {
+        state.market = JSON.parse(cached);
+        renderAll();
+        toast('Showing last loaded market. Refresh later.');
+        return;
+      } catch (_) {
+        localStorage.removeItem('pulse_last_market');
+      }
+    }
+    showMarketError(error.message);
+    toast('Live market unavailable. Check /api/health and /api/market.');
   }
 }
 
@@ -85,7 +138,8 @@ function renderHeader() {
   $('chartTitle').textContent = `${pair()} · ${state.interval.toUpperCase()}`;
   $('bookTitle').textContent = pair();
 
-  $('tickerBoard').innerHTML = data.watchlist.map(t => `
+  const sourceBadge = data.source ? `<span class="ticker-item source-badge">${data.source === 'coingecko' ? 'Fallback feed' : 'Live feed'}</span>` : '';
+  $('tickerBoard').innerHTML = sourceBadge + data.watchlist.map(t => `
     <span class="ticker-item">
       <span class="coin">${t.pair}</span>
       <span>$${fmt.format(t.lastPrice)}</span>

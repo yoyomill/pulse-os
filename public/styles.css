@@ -206,3 +206,13 @@ label { color: var(--muted); font-size: 12px; font-weight: 750; }
   .market-table .table-row { grid-template-columns: 1.1fr 1fr 0.7fr; }
   .market-table .table-row span:nth-child(4) { display: none; }
 }
+.ticker-item.error {
+  color: #ffd0d3;
+  border-color: rgba(255, 77, 87, 0.28);
+  background: rgba(255, 77, 87, 0.08);
+}
+.ticker-item.source-badge {
+  color: #9eefff;
+  border-color: rgba(83, 226, 255, 0.28);
+  background: rgba(83, 226, 255, 0.08);
+}
