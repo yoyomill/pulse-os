@@ -1,0 +1,25 @@
+{
+  "name": "pulse-wave2-os",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live ticker-board finance command center for SoSoValue Wave 2. Static frontend + Netlify Functions, no exposed API secrets.",
+  "scripts": {
+    "build": "node tools/build.js",
+    "start": "netlify dev",
+    "deploy:prod": "netlify deploy --prod --dir=dist --functions=netlify/functions"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "sosovalue",
+    "wavehack",
+    "sodex",
+    "valuechain",
+    "coingecko",
+    "binance",
+    "on-chain-finance",
+    "netlify"
+  ],
+  "license": "MIT"
+}

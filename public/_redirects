@@ -1,0 +1,4 @@
+/api/market /.netlify/functions/market 200
+/api/health /.netlify/functions/health 200
+/api/* /.netlify/functions/:splat 200
+/* /index.html 200
