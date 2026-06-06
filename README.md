@@ -1,7 +1,5 @@
 # Pulse OS — Pro Exchange Dashboard
 
-A live crypto exchange-style dashboard for Netlify. The UI is designed to look like a modern trading terminal, not a developer/debug panel.
-
 ## What is included
 
 Core market modules:
@@ -57,57 +55,3 @@ Core market modules:
 49. Responsive layout
 50. Netlify Functions backend
 
-## Live data
-
-The frontend calls only local routes:
-
-```txt
-/api/market
-/.netlify/functions/market
-```
-
-Market data is normalized in Netlify Functions before reaching the browser. No secret key is required for the default feeds.
-
-## Deploy settings
-
-```txt
-Build command: npm run build
-Publish directory: dist
-Functions directory: netlify/functions
-Node version: 20
-```
-
-## Local setup
-
-```bash
-npm install
-npm run check
-npx netlify dev
-```
-
-Open:
-
-```txt
-http://localhost:8888
-```
-
-## Git push
-
-```bash
-git add .
-git commit -m "Upgrade Pulse OS pro exchange dashboard"
-git push origin main
-```
-
-## Test after Netlify deploy
-
-```txt
-https://your-site.netlify.app/api/health
-https://your-site.netlify.app/api/market?symbol=BTCUSDT&interval=1h
-```
-
-If the market route returns `{ "ok": true }`, the dashboard will render live data.
-
-## Safety note
-
-Quick Trade, portfolio, alerts, and order history are practice tools stored locally in the browser. They do not connect to a real exchange account and do not move funds.
