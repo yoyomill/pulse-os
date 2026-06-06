@@ -1,24 +1,25 @@
 # Copy guide
 
-Replace your current project files with this structure:
+Copy every file from this package into your existing repo folder:
 
 ```txt
-pulse-os/
-├── public/
-│   ├── index.html
-│   ├── styles.css
-│   └── app.js
-├── netlify/
-│   └── functions/
-│       ├── health.js
-│       └── market.js
-├── scripts/
-│   ├── build.js
-│   └── check.js
-├── netlify.toml
-├── package.json
-├── .nvmrc
-└── README.md
+C:\Users\Asus\Desktop\pulse-os
 ```
 
-Then push to GitHub and redeploy on Netlify.
+Then run:
+
+```bash
+npm install
+npm run check
+git add .
+git commit -m "Upgrade Pulse OS pro exchange dashboard"
+git push origin main
+```
+
+If Git says there is nothing to commit, run:
+
+```bash
+git push origin main
+```
+
+Netlify will redeploy automatically if the site is connected to GitHub.

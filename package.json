@@ -1,12 +1,12 @@
 {
-  "name": "pulse-os-clean-exchange",
-  "version": "2.0.0",
+  "name": "pulse-os-pro-exchange",
+  "version": "3.0.0",
   "private": true,
-  "description": "Pulse OS - clean Netlify crypto dashboard with server-routed live market data.",
+  "description": "Pulse OS - live crypto exchange-style dashboard for Netlify",
   "scripts": {
     "build": "node scripts/build.js",
-    "dev": "netlify dev",
-    "check": "npm run build && node scripts/check.js"
+    "check": "node scripts/check.js && npm run build",
+    "dev": "netlify dev"
   },
   "engines": {
     "node": ">=20"

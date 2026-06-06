@@ -1,171 +1,174 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pulse OS</title>
-  <meta name="description" content="Pulse OS crypto market dashboard" />
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-  <div class="app-shell">
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
-        <div>
-          <div class="brand-name">Pulse</div>
-          <div class="brand-subtitle">Crypto Market Terminal</div>
-        </div>
-      </div>
-      <div class="ticker-board" id="tickerBoard">
-        <span class="ticker-item skeleton">Loading live market...</span>
-      </div>
-      <div class="top-actions">
-        <select id="symbolSelect" aria-label="Select market pair">
-          <option value="BTCUSDT">BTC/USDT</option>
-          <option value="ETHUSDT">ETH/USDT</option>
-          <option value="SOLUSDT">SOL/USDT</option>
-          <option value="BNBUSDT">BNB/USDT</option>
-          <option value="XRPUSDT">XRP/USDT</option>
-        </select>
-        <button id="refreshBtn" class="ghost-btn">Refresh</button>
-      </div>
-    </header>
-
-    <main class="dashboard">
-      <section class="card market-watch">
-        <div class="card-head">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pulse OS — Crypto Market Terminal</title>
+    <meta name="description" content="Pulse OS live crypto market terminal with watchlist, order book, chart, calculators, alerts, screener and portfolio tools." />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app" class="shell">
+      <header class="topbar glass">
+        <div class="brand">
+          <div class="logo-bars"><span></span><span></span><span></span><span></span></div>
           <div>
-            <p class="eyebrow">Market Watch</p>
-            <h2>Favorites</h2>
-          </div>
-          <div class="tabs">
-            <button class="active">USDT</button>
-            <button>Spot</button>
-            <button>24H</button>
+            <div class="brand-name">Pulse</div>
+            <div class="brand-sub">Crypto Market Terminal</div>
           </div>
         </div>
-        <div class="table market-table">
-          <div class="table-row table-header">
-            <span>Pair</span><span>Last Price</span><span>24h</span><span>Volume</span>
-          </div>
-          <div id="watchlistRows"></div>
+        <div class="ticker-tape" id="tickerTape">Loading live market...</div>
+        <div class="top-actions">
+          <select id="symbolSelect" class="control compact"></select>
+          <button class="btn ghost" id="refreshBtn">Refresh</button>
         </div>
-      </section>
+      </header>
 
-      <section class="card quick-trade">
-        <div class="card-head">
-          <div>
-            <p class="eyebrow">Quick Trade</p>
-            <h2 id="tradePairTitle">BTC/USDT</h2>
+      <main class="dashboard">
+        <section class="card market-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">Market Watch</p>
+              <h2>Favorites</h2>
+            </div>
+            <div class="tabs" id="marketTabs">
+              <button data-filter="USDT" class="active">USDT</button>
+              <button data-filter="GAINERS">Gainers</button>
+              <button data-filter="LOSERS">Losers</button>
+              <button data-filter="VOLUME">Volume</button>
+            </div>
           </div>
-          <div class="tabs">
-            <button class="active">Spot</button>
-            <button>Futures</button>
+          <div class="search-row">
+            <input id="marketSearch" class="control" placeholder="Search pair..." />
+            <button id="toggleFavOnly" class="btn ghost small">Only favorites</button>
           </div>
-        </div>
+          <div class="table-wrap short"><table class="market-table"><thead><tr><th>Pair</th><th>Last Price</th><th>24h</th><th>Volume</th><th></th></tr></thead><tbody id="marketRows"></tbody></table></div>
+        </section>
 
-        <div class="trade-switch">
-          <button id="buyMode" class="buy active">Buy</button>
-          <button id="sellMode" class="sell">Sell</button>
-        </div>
-
-        <div class="trade-grid">
-          <label>Price
-            <div class="input-wrap"><input id="orderPrice" type="number" step="0.01" /><span>USDT</span></div>
-          </label>
-          <label>Amount
-            <div class="input-wrap"><input id="orderAmount" type="number" step="0.0001" placeholder="0.0000" /><span id="baseAsset">BTC</span></div>
-          </label>
-          <label>Order Type
-            <div class="input-wrap"><select id="orderType"><option>Limit</option><option>Market</option></select></div>
-          </label>
-          <label>Leverage
-            <div class="input-wrap"><select id="leverage"><option>1x</option><option>3x</option><option>5x</option><option>10x</option></select></div>
-          </label>
-        </div>
-
-        <div class="balance-line">
-          <span>Available</span><strong>12,456.78 USDT</strong>
-        </div>
-        <div class="balance-line muted">
-          <span>Est. Fee</span><strong id="feePreview">0.00 USDT</strong>
-        </div>
-        <button id="placeOrderBtn" class="primary-btn buy">Buy BTC</button>
-        <p class="safe-note">Practice order only. No funds are moved.</p>
-      </section>
-
-      <section class="card chart-card wide">
-        <div class="card-head">
-          <div>
-            <p class="eyebrow">Live Chart</p>
-            <h2 id="chartTitle">BTC/USDT · 1H</h2>
+        <section class="card quick-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">Quick Trade</p>
+              <h2 id="quickPair">BTC/USDT</h2>
+            </div>
+            <div class="tabs">
+              <button class="active">Spot</button><button>Futures</button><button>Grid</button>
+            </div>
           </div>
-          <select id="intervalSelect">
-            <option value="15m">15m</option>
-            <option value="1h" selected>1h</option>
-            <option value="4h">4h</option>
-            <option value="1d">1d</option>
-          </select>
-        </div>
-        <canvas id="priceChart" height="180"></canvas>
-      </section>
-
-      <section class="card order-book">
-        <div class="card-head compact">
-          <div>
-            <p class="eyebrow">Order Book</p>
-            <h2 id="bookTitle">BTC/USDT</h2>
+          <div class="buy-sell"><button id="buyMode" class="active buy">Buy</button><button id="sellMode" class="sell">Sell</button></div>
+          <div class="form-grid">
+            <label>Price <div class="input-wrap"><input id="tradePrice" class="control" inputmode="decimal" /><span>USDT</span></div></label>
+            <label>Amount <div class="input-wrap"><input id="tradeAmount" class="control" inputmode="decimal" value="1" /><span id="amountUnit">BTC</span></div></label>
+            <label>Order Type <select id="orderType" class="control"><option>Limit</option><option>Market</option><option>Stop Limit</option><option>OCO</option></select></label>
+            <label>Leverage <select id="leverage" class="control"><option>1x</option><option>2x</option><option>3x</option><option>5x</option><option>10x</option></select></label>
           </div>
-          <span class="pill">0.01</span>
-        </div>
-        <div class="book-grid book-header"><span>Bid</span><span>Size</span><span>Ask</span><span>Size</span></div>
-        <div id="bookRows"></div>
-        <div class="mid-price" id="midPrice">--</div>
-      </section>
+          <div class="range-row"><span>0%</span><input id="tradeSlider" type="range" min="0" max="100" step="5" value="25" /><span>100%</span></div>
+          <div class="summary-line"><span>Available</span><b id="availableBalance">12,456.78 USDT</b></div>
+          <div class="summary-line"><span>Est. Fee</span><b id="estFee">0.00 USDT</b></div>
+          <div class="summary-line"><span>Total</span><b id="orderTotal">0.00 USDT</b></div>
+          <button class="btn primary full" id="placeOrder">Buy BTC</button>
+          <p class="note">Practice order only. No funds are moved.</p>
+        </section>
 
-      <section class="card recent-trades">
-        <div class="card-head compact">
-          <div>
-            <p class="eyebrow">Recent Trades</p>
-            <h2>Feed</h2>
+        <section class="card chart-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">Live Chart</p>
+              <h2 id="chartTitle">BTC/USDT · 1H</h2>
+            </div>
+            <div class="intervals" id="intervals"><button data-i="1m">1m</button><button data-i="5m">5m</button><button data-i="15m">15m</button><button data-i="1h" class="active">1h</button><button data-i="4h">4h</button><button data-i="1d">1d</button></div>
           </div>
-        </div>
-        <div class="table mini-table">
-          <div class="table-row table-header"><span>Time</span><span>Price</span><span>Size</span></div>
-          <div id="tradeRows"></div>
-        </div>
-      </section>
+          <div class="metric-strip">
+            <div><span>Last</span><b id="lastMetric">--</b></div>
+            <div><span>High</span><b id="highMetric">--</b></div>
+            <div><span>Low</span><b id="lowMetric">--</b></div>
+            <div><span>ATR</span><b id="atrMetric">--</b></div>
+            <div><span>RSI</span><b id="rsiMetric">--</b></div>
+            <div><span>Trend</span><b id="trendMetric">--</b></div>
+          </div>
+          <canvas id="priceCanvas" height="360"></canvas>
+          <div class="chart-tools">
+            <button class="chip active" data-chart="line">Line</button>
+            <button class="chip" data-chart="candles">Candles</button>
+            <button class="chip" id="toggleMA">EMA overlay</button>
+            <button class="chip" id="exportCsv">Export CSV</button>
+          </div>
+        </section>
 
-      <section class="card positions wide">
-        <div class="card-head compact">
-          <div>
-            <p class="eyebrow">Portfolio</p>
-            <h2>Open Positions</h2>
-          </div>
-          <button id="clearPositions" class="ghost-btn small">Clear</button>
-        </div>
-        <div class="table positions-table">
-          <div class="table-row table-header">
-            <span>Pair</span><span>Side</span><span>Size</span><span>Entry</span><span>Mark</span><span>PnL</span>
-          </div>
-          <div id="positionRows"></div>
-        </div>
-      </section>
+        <section class="card orderbook-card">
+          <div class="card-head"><div><p class="eyebrow">Order Book</p><h2 id="bookPair">BTC/USDT</h2></div><button class="pill">0.01</button></div>
+          <div class="book-head"><span>Bid</span><span>Size</span><span>Ask</span><span>Size</span></div>
+          <div id="orderBook" class="book-list"></div>
+          <div class="mid-price" id="midPrice">--</div>
+          <div class="spread" id="spreadText">Spread --</div>
+        </section>
 
-      <section class="card movers full">
-        <div class="card-head compact">
-          <div>
-            <p class="eyebrow">Top Movers</p>
-            <h2>24H Market Heat</h2>
-          </div>
-        </div>
-        <div id="moverChips" class="mover-grid"></div>
-      </section>
-    </main>
-  </div>
+        <section class="card trades-card">
+          <div class="card-head"><div><p class="eyebrow">Recent Trades</p><h2>Feed</h2></div><button class="pill" id="pauseTrades">Pause</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Time</th><th>Price</th><th>Size</th><th>Side</th></tr></thead><tbody id="tradeRows"></tbody></table></div>
+        </section>
 
-  <div class="toast" id="toast"></div>
-  <script src="/app.js" defer></script>
-</body>
+        <section class="card portfolio-card">
+          <div class="card-head"><div><p class="eyebrow">Portfolio</p><h2>Open Positions</h2></div><button class="btn ghost small" id="clearPortfolio">Clear</button></div>
+          <div class="portfolio-kpis">
+            <div><span>Equity</span><b id="equityKpi">12,456.78</b></div>
+            <div><span>Unrealized PnL</span><b id="pnlKpi">0.00</b></div>
+            <div><span>Win Rate</span><b id="winRateKpi">--</b></div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Pair</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>PnL</th></tr></thead><tbody id="positionRows"></tbody></table></div>
+        </section>
+
+        <section class="card movers-card wide">
+          <div class="card-head"><div><p class="eyebrow">Top Movers</p><h2>24H Leaders</h2></div><div class="tabs"><button class="active" id="showGainers">Gainers</button><button id="showLosers">Losers</button></div></div>
+          <div id="moverGrid" class="mover-grid"></div>
+        </section>
+
+        <section class="card heatmap-card wide">
+          <div class="card-head"><div><p class="eyebrow">Market Heatmap</p><h2>Momentum Map</h2></div><button class="pill" id="sortHeatmap">Sort by volume</button></div>
+          <div id="heatmap" class="heatmap"></div>
+        </section>
+
+        <section class="card screener-card wide">
+          <div class="card-head"><div><p class="eyebrow">Screener</p><h2>Signal Board</h2></div><div class="tabs"><button data-screen="all" class="active">All</button><button data-screen="bullish">Bullish</button><button data-screen="bearish">Bearish</button><button data-screen="active">High Volume</button></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Pair</th><th>Price</th><th>24h</th><th>Volume Rank</th><th>Trend</th><th>Volatility</th><th>Action</th></tr></thead><tbody id="screenerRows"></tbody></table></div>
+        </section>
+
+        <section class="card signal-card">
+          <div class="card-head"><div><p class="eyebrow">Market Pulse</p><h2 id="signalLabel">Neutral</h2></div><div class="score-ring"><span id="signalScore">--</span></div></div>
+          <div class="gauge"><div id="gaugeFill"></div></div>
+          <div class="signal-grid">
+            <div><span>Breadth</span><b id="breadthMetric">--</b></div>
+            <div><span>Volatility</span><b id="volMetric">--</b></div>
+            <div><span>Funding</span><b id="fundingMetric">--</b></div>
+            <div><span>Open Interest</span><b id="oiMetric">--</b></div>
+          </div>
+          <p id="pulseComment" class="muted"></p>
+        </section>
+
+        <section class="card alerts-card">
+          <div class="card-head"><div><p class="eyebrow">Alerts</p><h2>Price Watch</h2></div><button class="btn ghost small" id="clearAlerts">Clear</button></div>
+          <div class="inline-form"><select id="alertSide" class="control"><option value="above">Above</option><option value="below">Below</option></select><input id="alertPrice" class="control" placeholder="Price" inputmode="decimal" /><button id="addAlert" class="btn primary">Add</button></div>
+          <div id="alertsList" class="mini-list"></div>
+        </section>
+
+        <section class="card calc-card">
+          <div class="card-head"><div><p class="eyebrow">Trader Tools</p><h2>Calculators</h2></div><div class="tabs small-tabs" id="calcTabs"><button data-calc="pnl" class="active">PnL</button><button data-calc="risk">Risk</button><button data-calc="dca">DCA</button><button data-calc="liq">Liq</button><button data-calc="convert">Convert</button></div></div>
+          <div id="calculatorPanel"></div>
+        </section>
+
+        <section class="card history-card">
+          <div class="card-head"><div><p class="eyebrow">Order History</p><h2>Practice Desk</h2></div><button class="btn ghost small" id="clearOrders">Clear</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Time</th><th>Pair</th><th>Side</th><th>Type</th><th>Price</th><th>Amount</th></tr></thead><tbody id="orderHistoryRows"></tbody></table></div>
+        </section>
+
+        <section class="card news-card">
+          <div class="card-head"><div><p class="eyebrow">Briefing</p><h2>Auto Notes</h2></div><button class="pill">Live derived</button></div>
+          <div id="briefingList" class="briefing-list"></div>
+        </section>
+      </main>
+
+      <div class="toast" id="toast"></div>
+    </div>
+    <script src="./app.js"></script>
+  </body>
 </html>

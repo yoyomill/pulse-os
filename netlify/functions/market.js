@@ -1,298 +1,443 @@
-const BINANCE_BASES = [
+const BINANCE_HOSTS = [
   'https://api.binance.com',
-  'https://api1.binance.com',
-  'https://api2.binance.com',
-  'https://api3.binance.com',
   'https://data-api.binance.vision'
 ];
 
-const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
-const DEFAULT_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
-const ALLOWED_INTERVALS = new Set(['1m', '5m', '15m', '30m', '1h', '4h', '1d']);
+const SYMBOLS = [
+  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT',
+  'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'TONUSDT', 'TRXUSDT', 'DOTUSDT',
+  'LTCUSDT', 'BCHUSDT', 'OPUSDT', 'ARBUSDT', 'NEARUSDT', 'INJUSDT',
+  'APTUSDT', 'SUIUSDT', 'SEIUSDT', 'TIAUSDT', 'ORDIUSDT', 'WIFUSDT'
+];
 
 const COINGECKO_IDS = {
   BTCUSDT: 'bitcoin',
   ETHUSDT: 'ethereum',
   SOLUSDT: 'solana',
   BNBUSDT: 'binancecoin',
-  XRPUSDT: 'ripple'
+  XRPUSDT: 'ripple',
+  DOGEUSDT: 'dogecoin',
+  ADAUSDT: 'cardano',
+  AVAXUSDT: 'avalanche-2',
+  LINKUSDT: 'chainlink',
+  TONUSDT: 'the-open-network',
+  TRXUSDT: 'tron',
+  DOTUSDT: 'polkadot',
+  LTCUSDT: 'litecoin',
+  BCHUSDT: 'bitcoin-cash',
+  OPUSDT: 'optimism',
+  ARBUSDT: 'arbitrum',
+  NEARUSDT: 'near',
+  INJUSDT: 'injective-protocol',
+  APTUSDT: 'aptos',
+  SUIUSDT: 'sui',
+  SEIUSDT: 'sei-network',
+  TIAUSDT: 'celestia',
+  ORDIUSDT: 'ordinals',
+  WIFUSDT: 'dogwifcoin'
 };
 
-const COINGECKO_SYMBOLS = {
-  bitcoin: 'BTCUSDT',
-  ethereum: 'ETHUSDT',
-  solana: 'SOLUSDT',
-  binancecoin: 'BNBUSDT',
-  ripple: 'XRPUSDT'
+const VALID_INTERVALS = new Set(['1m', '5m', '15m', '30m', '1h', '4h', '1d']);
+
+exports.handler = async function handler(event) {
+  const qs = event.queryStringParameters || {};
+  const symbol = sanitizeSymbol(qs.symbol || 'BTCUSDT');
+  const interval = VALID_INTERVALS.has(qs.interval) ? qs.interval : '1h';
+
+  try {
+    const data = await loadBinance(symbol, interval);
+    return json({ ok: true, mode: 'live', source: data.source, fetchedAt: new Date().toISOString(), ...data });
+  } catch (primaryError) {
+    try {
+      const fallback = await loadCoinGecko(symbol, interval);
+      return json({
+        ok: true,
+        mode: 'live_partial',
+        source: fallback.source,
+        warning: 'Some exchange-depth modules are reduced because the primary feed is unavailable.',
+        fetchedAt: new Date().toISOString(),
+        ...fallback
+      });
+    } catch (fallbackError) {
+      return json({
+        ok: false,
+        error: 'MARKET_DATA_UNAVAILABLE',
+        message: 'Live market data is temporarily unavailable. Try refreshing in a moment.',
+        detail: safeError(primaryError),
+        fallbackDetail: safeError(fallbackError),
+        fetchedAt: new Date().toISOString()
+      }, 502);
+    }
+  }
 };
 
-function json(statusCode, payload) {
+async function loadBinance(symbol, interval) {
+  const host = await firstWorkingHost();
+  const [tickersRaw, klinesRaw, depthRaw, tradesRaw, premiumRaw, oiRaw] = await Promise.all([
+    getJson(`${host}/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(SYMBOLS))}`),
+    getJson(`${host}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=140`),
+    getJson(`${host}/api/v3/depth?symbol=${symbol}&limit=20`),
+    getJson(`${host}/api/v3/trades?symbol=${symbol}&limit=40`),
+    maybeJson(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`),
+    maybeJson(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`)
+  ]);
+
+  const tickers = tickersRaw
+    .map(normalizeTicker)
+    .filter(Boolean)
+    .sort((a, b) => b.quoteVolume - a.quoteVolume);
+  const selectedTicker = tickers.find(t => t.symbol === symbol) || tickers[0];
+  const klines = klinesRaw.map(normalizeKline).filter(Boolean);
+  const depth = normalizeDepth(depthRaw);
+  const trades = tradesRaw.map(normalizeTrade).filter(Boolean).reverse();
+
+  return enrich({
+    source: 'market-feed',
+    symbol: selectedTicker?.symbol || symbol,
+    interval,
+    selected: selectedTicker,
+    tickers,
+    klines,
+    depth,
+    trades,
+    futures: normalizeFutures(premiumRaw, oiRaw)
+  });
+}
+
+async function firstWorkingHost() {
+  let last;
+  for (const host of BINANCE_HOSTS) {
+    try {
+      await getJson(`${host}/api/v3/time`, 6000);
+      return host;
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last || new Error('No market host reachable');
+}
+
+async function loadCoinGecko(symbol, interval) {
+  const ids = Object.values(COINGECKO_IDS).join(',');
+  const selectedId = COINGECKO_IDS[symbol] || 'bitcoin';
+  const [markets, chartRaw] = await Promise.all([
+    getJson(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=80&page=1&sparkline=false&price_change_percentage=24h`),
+    getJson(`https://api.coingecko.com/api/v3/coins/${selectedId}/market_chart?vs_currency=usd&days=${interval === '1d' ? 30 : 2}`)
+  ]);
+
+  const tickers = markets.map(coin => {
+    const sym = Object.entries(COINGECKO_IDS).find(([, id]) => id === coin.id)?.[0] || `${String(coin.symbol || '').toUpperCase()}USDT`;
+    return {
+      symbol: sym,
+      asset: sym.replace('USDT', ''),
+      pair: `${sym.replace('USDT', '')}/USDT`,
+      lastPrice: num(coin.current_price),
+      price: num(coin.current_price),
+      priceText: formatPrice(num(coin.current_price)),
+      priceChangePercent: num(coin.price_change_percentage_24h),
+      change: num(coin.price_change_24h),
+      highPrice: num(coin.high_24h),
+      lowPrice: num(coin.low_24h),
+      volume: num(coin.total_volume),
+      quoteVolume: num(coin.total_volume),
+      count: 0,
+      marketCap: num(coin.market_cap),
+      image: coin.image || ''
+    };
+  });
+
+  const selected = tickers.find(t => t.symbol === symbol) || tickers[0];
+  const prices = Array.isArray(chartRaw.prices) ? chartRaw.prices : [];
+  const volumes = Array.isArray(chartRaw.total_volumes) ? chartRaw.total_volumes : [];
+  const klines = prices.slice(-140).map((p, i, arr) => {
+    const close = num(p[1]);
+    const prev = i ? num(arr[i - 1][1]) : close;
+    const v = volumes[i] ? num(volumes[i][1]) : 0;
+    const high = Math.max(close, prev) * 1.0015;
+    const low = Math.min(close, prev) * 0.9985;
+    return { time: p[0], open: prev, high, low, close, volume: v };
+  });
+
+  return enrich({
+    source: 'market-feed-alt',
+    symbol: selected?.symbol || symbol,
+    interval,
+    selected,
+    tickers,
+    klines,
+    depth: makeReducedDepth(selected?.lastPrice || 0),
+    trades: makeReducedTrades(selected?.lastPrice || 0),
+    futures: {}
+  });
+}
+
+function enrich(base) {
+  const tickers = Array.isArray(base.tickers) ? base.tickers : [];
+  const selected = base.selected || tickers[0] || {};
+  const gainers = [...tickers].sort((a, b) => b.priceChangePercent - a.priceChangePercent).slice(0, 8);
+  const losers = [...tickers].sort((a, b) => a.priceChangePercent - b.priceChangePercent).slice(0, 8);
+  const volumeLeaders = [...tickers].sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 10);
+  const avgChange = average(tickers.map(t => t.priceChangePercent));
+  const bullish = tickers.filter(t => t.priceChangePercent >= 0).length;
+  const bearish = Math.max(0, tickers.length - bullish);
+  const breadth = tickers.length ? bullish / tickers.length : 0;
+  const k = base.klines || [];
+  const closes = k.map(x => x.close).filter(Number.isFinite);
+  const atr = averageTrueRange(k);
+  const vol = volatility(closes);
+  const ema12 = ema(closes, 12);
+  const ema26 = ema(closes, 26);
+  const rsi14 = rsi(closes, 14);
+  const trend = last(ema12) > last(ema26) ? 'Bullish' : last(ema12) < last(ema26) ? 'Bearish' : 'Flat';
+  const spread = spreadPct(base.depth);
+  const score = scoreSignal({ breadth, trend, rsi: rsi14, change: selected.priceChangePercent, volatility: vol, spread });
+
   return {
-    statusCode,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'public, max-age=8, s-maxage=12',
-      'Access-Control-Allow-Origin': '*'
+    ...base,
+    selected,
+    topGainers: gainers,
+    topLosers: losers,
+    volumeLeaders,
+    heatmap: tickers.slice(0, 24),
+    metrics: {
+      avgChange,
+      bullish,
+      bearish,
+      breadth,
+      totalQuoteVolume: sum(tickers.map(t => t.quoteVolume)),
+      volatility: vol,
+      atr,
+      atrPct: selected.lastPrice ? (atr / selected.lastPrice) * 100 : 0,
+      rsi: rsi14,
+      trend,
+      spread,
+      signalScore: score.value,
+      signalLabel: score.label,
+      signalConfidence: score.confidence
     },
-    body: JSON.stringify(payload)
+    derived: {
+      ema12: last(ema12),
+      ema26: last(ema26),
+      high: Math.max(...closes),
+      low: Math.min(...closes),
+      support: support(k),
+      resistance: resistance(k)
+    }
   };
 }
 
-function normalizeSymbol(input) {
-  const symbol = String(input || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return symbol.endsWith('USDT') ? symbol : 'BTCUSDT';
+function normalizeTicker(t) {
+  if (!t || !t.symbol) return null;
+  const asset = t.symbol.replace('USDT', '');
+  const price = num(t.lastPrice);
+  return {
+    symbol: t.symbol,
+    asset,
+    pair: `${asset}/USDT`,
+    lastPrice: price,
+    price,
+    priceText: formatPrice(price),
+    priceChangePercent: num(t.priceChangePercent),
+    change: num(t.priceChange),
+    highPrice: num(t.highPrice),
+    lowPrice: num(t.lowPrice),
+    volume: num(t.volume),
+    quoteVolume: num(t.quoteVolume),
+    count: Number(t.count || 0),
+    weightedAvgPrice: num(t.weightedAvgPrice)
+  };
 }
 
-function normalizeInterval(input) {
-  const interval = String(input || '1h');
-  return ALLOWED_INTERVALS.has(interval) ? interval : '1h';
+function normalizeKline(k) {
+  if (!Array.isArray(k)) return null;
+  return { time: Number(k[0]), open: num(k[1]), high: num(k[2]), low: num(k[3]), close: num(k[4]), volume: num(k[5]) };
 }
 
-function toNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
+function normalizeDepth(d) {
+  const bids = (d?.bids || []).map(([p, q]) => ({ price: num(p), qty: num(q), total: num(p) * num(q) }));
+  const asks = (d?.asks || []).map(([p, q]) => ({ price: num(p), qty: num(q), total: num(p) * num(q) }));
+  return { bids, asks };
 }
 
-async function getJsonUrl(url, timeoutMs = 9000) {
+function normalizeTrade(t) {
+  return {
+    id: t.id,
+    time: Number(t.time || Date.now()),
+    price: num(t.price),
+    qty: num(t.qty),
+    quoteQty: num(t.quoteQty),
+    side: t.isBuyerMaker ? 'sell' : 'buy'
+  };
+}
+
+function normalizeFutures(premium, oi) {
+  return {
+    markPrice: num(premium?.markPrice),
+    indexPrice: num(premium?.indexPrice),
+    fundingRate: num(premium?.lastFundingRate),
+    nextFundingTime: Number(premium?.nextFundingTime || 0),
+    openInterest: num(oi?.openInterest)
+  };
+}
+
+function makeReducedDepth(price) {
+  if (!price) return { bids: [], asks: [] };
+  const bids = Array.from({ length: 12 }, (_, i) => {
+    const p = price * (1 - (i + 1) * 0.0006);
+    const q = 0;
+    return { price: p, qty: q, total: 0 };
+  });
+  const asks = Array.from({ length: 12 }, (_, i) => {
+    const p = price * (1 + (i + 1) * 0.0006);
+    const q = 0;
+    return { price: p, qty: q, total: 0 };
+  });
+  return { bids, asks };
+}
+
+function makeReducedTrades(price) {
+  if (!price) return [];
+  return Array.from({ length: 20 }, (_, i) => ({
+    id: i,
+    time: Date.now() - i * 12000,
+    price,
+    qty: 0,
+    quoteQty: 0,
+    side: i % 2 ? 'sell' : 'buy'
+  }));
+}
+
+async function getJson(url, timeoutMs = 9000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/json', 'User-Agent': 'Pulse-OS/2.1' }
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 160)}`);
-    }
-    return JSON.parse(text);
+    const res = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error(`HTTP_${res.status}`);
+    return await res.json();
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function getBinanceJson(path) {
-  let lastError;
-  for (const base of BINANCE_BASES) {
-    try {
-      return await getJsonUrl(`${base}${path}`);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error(`Unable to fetch Binance path: ${path}`);
-}
-
-async function getCoinGeckoJson(path) {
-  return getJsonUrl(`${COINGECKO_BASE}${path}`, 10000);
-}
-
-function compactTicker(t) {
-  return {
-    symbol: t.symbol,
-    pair: t.symbol.replace('USDT', '/USDT'),
-    lastPrice: toNumber(t.lastPrice),
-    priceChangePercent: toNumber(t.priceChangePercent),
-    quoteVolume: toNumber(t.quoteVolume),
-    highPrice: toNumber(t.highPrice),
-    lowPrice: toNumber(t.lowPrice)
-  };
-}
-
-function compactKline(row) {
-  return {
-    openTime: row[0],
-    open: toNumber(row[1]),
-    high: toNumber(row[2]),
-    low: toNumber(row[3]),
-    close: toNumber(row[4]),
-    volume: toNumber(row[5]),
-    closeTime: row[6]
-  };
-}
-
-function compactDepth(depth) {
-  return {
-    lastUpdateId: depth.lastUpdateId,
-    bids: (depth.bids || []).slice(0, 10).map(([price, qty]) => ({ price: toNumber(price), qty: toNumber(qty) })),
-    asks: (depth.asks || []).slice(0, 10).map(([price, qty]) => ({ price: toNumber(price), qty: toNumber(qty) }))
-  };
-}
-
-function compactTrade(t) {
-  return {
-    id: t.id,
-    price: toNumber(t.price),
-    qty: toNumber(t.qty),
-    time: t.time,
-    isBuyerMaker: Boolean(t.isBuyerMaker)
-  };
-}
-
-function cgTicker(coin) {
-  const symbol = COINGECKO_SYMBOLS[coin.id] || `${String(coin.symbol || '').toUpperCase()}USDT`;
-  return {
-    symbol,
-    pair: symbol.replace('USDT', '/USDT'),
-    lastPrice: toNumber(coin.current_price),
-    priceChangePercent: toNumber(coin.price_change_percentage_24h),
-    quoteVolume: toNumber(coin.total_volume),
-    highPrice: toNumber(coin.high_24h, coin.current_price),
-    lowPrice: toNumber(coin.low_24h, coin.current_price)
-  };
-}
-
-function intervalMs(interval) {
-  const map = {
-    '1m': 60_000,
-    '5m': 300_000,
-    '15m': 900_000,
-    '30m': 1_800_000,
-    '1h': 3_600_000,
-    '4h': 14_400_000,
-    '1d': 86_400_000
-  };
-  return map[interval] || 3_600_000;
-}
-
-function candlesFromSparkline(prices, interval) {
-  const list = Array.isArray(prices) ? prices.filter(Number.isFinite) : [];
-  const selected = list.length > 80 ? list.slice(-80) : list;
-  const step = intervalMs(interval);
-  const now = Date.now();
-  return selected.map((price, index) => {
-    const previous = index === 0 ? price : selected[index - 1];
-    const high = Math.max(price, previous);
-    const low = Math.min(price, previous);
-    const openTime = now - (selected.length - index) * step;
-    return {
-      openTime,
-      open: previous,
-      high,
-      low,
-      close: price,
-      volume: 0,
-      closeTime: openTime + step
-    };
-  });
-}
-
-function derivedDepth(price) {
-  const mid = toNumber(price, 1);
-  const bids = [];
-  const asks = [];
-  for (let i = 0; i < 10; i += 1) {
-    const spread = (i + 1) * 0.00035;
-    const qty = Number((0.12 + (10 - i) * 0.041).toFixed(6));
-    bids.push({ price: mid * (1 - spread), qty });
-    asks.push({ price: mid * (1 + spread), qty: Number((qty * 0.91).toFixed(6)) });
-  }
-  return { lastUpdateId: Date.now(), bids, asks };
-}
-
-function derivedTrades(price) {
-  const mid = toNumber(price, 1);
-  return Array.from({ length: 15 }).map((_, i) => {
-    const sign = i % 3 === 0 ? -1 : 1;
-    return {
-      id: Date.now() - i,
-      price: mid * (1 + sign * i * 0.00009),
-      qty: Number((0.025 + i * 0.017).toFixed(6)),
-      time: Date.now() - i * 11_000,
-      isBuyerMaker: sign < 0
-    };
-  });
-}
-
-async function binanceMarket(symbol, interval) {
-  const watchSymbols = Array.from(new Set([symbol, ...DEFAULT_SYMBOLS]));
-
-  const [ticker, klines, depth, trades, watchlistRaw, allTickers] = await Promise.all([
-    getBinanceJson(`/api/v3/ticker/24hr?symbol=${symbol}`),
-    getBinanceJson(`/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=80`),
-    getBinanceJson(`/api/v3/depth?symbol=${symbol}&limit=10`),
-    getBinanceJson(`/api/v3/trades?symbol=${symbol}&limit=15`),
-    Promise.all(watchSymbols.map(s => getBinanceJson(`/api/v3/ticker/24hr?symbol=${s}`).catch(() => null))),
-    getBinanceJson('/api/v3/ticker/24hr')
-  ]);
-
-  const movers = allTickers
-    .filter(t => t.symbol && t.symbol.endsWith('USDT') && !/UPUSDT|DOWNUSDT|BULLUSDT|BEARUSDT/.test(t.symbol))
-    .map(compactTicker)
-    .sort((a, b) => Math.abs(b.priceChangePercent) - Math.abs(a.priceChangePercent))
-    .slice(0, 12);
-
-  return {
-    ok: true,
-    source: 'binance',
-    symbol,
-    interval,
-    updatedAt: new Date().toISOString(),
-    ticker: compactTicker(ticker),
-    candles: klines.map(compactKline),
-    depth: compactDepth(depth),
-    trades: trades.map(compactTrade).reverse(),
-    watchlist: watchlistRaw.filter(Boolean).map(compactTicker),
-    movers
-  };
-}
-
-async function coinGeckoMarket(symbol, interval, binanceError) {
-  const ids = DEFAULT_SYMBOLS.map(s => COINGECKO_IDS[s]).join(',');
-  const selectedId = COINGECKO_IDS[symbol] || 'bitcoin';
-
-  const [watchCoins, moverCoins] = await Promise.all([
-    getCoinGeckoJson(`/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=20&page=1&sparkline=true&price_change_percentage=24h`),
-    getCoinGeckoJson('/coins/markets?vs_currency=usd&order=volume_desc&per_page=80&page=1&sparkline=true&price_change_percentage=24h')
-  ]);
-
-  const selectedCoin = watchCoins.find(c => c.id === selectedId) || watchCoins[0];
-  const ticker = cgTicker(selectedCoin);
-  const candles = candlesFromSparkline(selectedCoin?.sparkline_in_7d?.price || [], interval);
-  const movers = moverCoins
-    .map(cgTicker)
-    .filter(t => t.symbol.endsWith('USDT'))
-    .sort((a, b) => Math.abs(b.priceChangePercent) - Math.abs(a.priceChangePercent))
-    .slice(0, 12);
-
-  return {
-    ok: true,
-    source: 'coingecko',
-    note: 'Binance unavailable; watchlist and chart use CoinGecko live market data. Depth and trades are display estimates derived from the live price.',
-    upstreamWarning: binanceError ? String(binanceError.message || binanceError).slice(0, 220) : undefined,
-    symbol,
-    interval,
-    updatedAt: new Date().toISOString(),
-    ticker,
-    candles,
-    depth: derivedDepth(ticker.lastPrice),
-    trades: derivedTrades(ticker.lastPrice),
-    watchlist: watchCoins.map(cgTicker),
-    movers
-  };
-}
-
-exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') return json(204, {});
-
-  const params = event.queryStringParameters || {};
-  const symbol = normalizeSymbol(params.symbol);
-  const interval = normalizeInterval(params.interval);
-
+async function maybeJson(url) {
   try {
-    const data = await binanceMarket(symbol, interval);
-    return json(200, data);
-  } catch (binanceError) {
-    try {
-      const data = await coinGeckoMarket(symbol, interval, binanceError);
-      return json(200, data);
-    } catch (coinGeckoError) {
-      return json(502, {
-        ok: false,
-        error: 'LIVE_MARKET_DATA_UNAVAILABLE',
-        message: coinGeckoError.message,
-        binanceMessage: binanceError.message
-      });
-    }
+    return await getJson(url, 5000);
+  } catch (_) {
+    return null;
   }
-};
+}
+
+function sanitizeSymbol(value) {
+  const clean = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return SYMBOLS.includes(clean) ? clean : 'BTCUSDT';
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatPrice(n) {
+  if (!Number.isFinite(n)) return '--';
+  if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  if (n >= 1) return n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+  return n.toLocaleString('en-US', { maximumFractionDigits: 8 });
+}
+
+function json(body, statusCode = 200) {
+  return {
+    statusCode,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': statusCode === 200 ? 'public, max-age=10, s-maxage=10' : 'no-store',
+      'access-control-allow-origin': '*'
+    },
+    body: JSON.stringify(body)
+  };
+}
+
+function safeError(err) {
+  return err && err.message ? String(err.message).slice(0, 120) : 'unknown';
+}
+
+function sum(arr) { return arr.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0); }
+function average(arr) { const v = arr.filter(Number.isFinite); return v.length ? sum(v) / v.length : 0; }
+function last(arr) { return arr && arr.length ? arr[arr.length - 1] : 0; }
+
+function ema(values, period) {
+  if (!values.length) return [];
+  const k = 2 / (period + 1);
+  const out = [values[0]];
+  for (let i = 1; i < values.length; i += 1) out.push(values[i] * k + out[i - 1] * (1 - k));
+  return out;
+}
+
+function rsi(values, period = 14) {
+  if (values.length <= period) return 50;
+  let gains = 0;
+  let losses = 0;
+  for (let i = values.length - period; i < values.length; i += 1) {
+    const diff = values[i] - values[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+  }
+  if (!losses) return 100;
+  const rs = gains / losses;
+  return 100 - 100 / (1 + rs);
+}
+
+function volatility(values) {
+  if (values.length < 3) return 0;
+  const returns = [];
+  for (let i = 1; i < values.length; i += 1) {
+    if (values[i - 1]) returns.push((values[i] - values[i - 1]) / values[i - 1]);
+  }
+  const mean = average(returns);
+  const variance = average(returns.map(x => (x - mean) ** 2));
+  return Math.sqrt(variance) * 100;
+}
+
+function averageTrueRange(k, period = 14) {
+  if (!k.length) return 0;
+  const trs = [];
+  for (let i = 1; i < k.length; i += 1) {
+    const current = k[i];
+    const prev = k[i - 1];
+    trs.push(Math.max(current.high - current.low, Math.abs(current.high - prev.close), Math.abs(current.low - prev.close)));
+  }
+  return average(trs.slice(-period));
+}
+
+function support(k) {
+  const lows = (k || []).slice(-40).map(x => x.low).filter(Boolean);
+  return lows.length ? Math.min(...lows) : 0;
+}
+
+function resistance(k) {
+  const highs = (k || []).slice(-40).map(x => x.high).filter(Boolean);
+  return highs.length ? Math.max(...highs) : 0;
+}
+
+function spreadPct(depth) {
+  const bid = depth?.bids?.[0]?.price || 0;
+  const ask = depth?.asks?.[0]?.price || 0;
+  if (!bid || !ask) return 0;
+  return ((ask - bid) / ((ask + bid) / 2)) * 100;
+}
+
+function scoreSignal({ breadth, trend, rsi, change, volatility: vol, spread }) {
+  let score = 50;
+  score += (breadth - 0.5) * 28;
+  score += trend === 'Bullish' ? 12 : trend === 'Bearish' ? -12 : 0;
+  score += change > 0 ? Math.min(10, change) : Math.max(-10, change);
+  if (rsi < 35) score += 8;
+  if (rsi > 70) score -= 8;
+  if (vol > 3) score -= 6;
+  if (spread > 0.2) score -= 5;
+  score = Math.max(0, Math.min(100, score));
+  return {
+    value: score,
+    label: score >= 62 ? 'Bullish' : score <= 38 ? 'Bearish' : 'Neutral',
+    confidence: Math.abs(score - 50) * 2
+  };
+}
