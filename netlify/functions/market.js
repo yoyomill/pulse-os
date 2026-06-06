@@ -1,62 +1,123 @@
-const {
-  TRACKED_ASSETS,
-  STYLE_PROFILES,
-  CORS,
-  json,
-  fetchBinanceTickers,
-  fetchBinanceKlines,
-  fetchCoinGeckoMarkets,
-  fetchCoinGeckoTrending,
-  fetchSoDEXTickers,
-  fetchSoSoValueOptional,
-  buildDashboard,
-} = require('./_core');
+const BASE = 'https://api.binance.com';
+const DEFAULT_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
+const ALLOWED_INTERVALS = new Set(['1m', '5m', '15m', '30m', '1h', '4h', '1d']);
+
+function json(statusCode, payload) {
+  return {
+    statusCode,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'public, max-age=10, s-maxage=15'
+    },
+    body: JSON.stringify(payload)
+  };
+}
+
+function normalizeSymbol(input) {
+  const symbol = String(input || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return symbol.endsWith('USDT') ? symbol : 'BTCUSDT';
+}
+
+function normalizeInterval(input) {
+  const interval = String(input || '1h');
+  return ALLOWED_INTERVALS.has(interval) ? interval : '1h';
+}
+
+async function getJson(path) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Accept': 'application/json' }
+  });
+  if (!res.ok) throw new Error(`Upstream ${res.status}: ${path}`);
+  return res.json();
+}
+
+function toNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function compactTicker(t) {
+  return {
+    symbol: t.symbol,
+    pair: t.symbol.replace('USDT', '/USDT'),
+    lastPrice: toNumber(t.lastPrice),
+    priceChangePercent: toNumber(t.priceChangePercent),
+    quoteVolume: toNumber(t.quoteVolume),
+    highPrice: toNumber(t.highPrice),
+    lowPrice: toNumber(t.lowPrice)
+  };
+}
+
+function compactKline(row) {
+  return {
+    openTime: row[0],
+    open: toNumber(row[1]),
+    high: toNumber(row[2]),
+    low: toNumber(row[3]),
+    close: toNumber(row[4]),
+    volume: toNumber(row[5]),
+    closeTime: row[6]
+  };
+}
+
+function compactDepth(depth) {
+  return {
+    lastUpdateId: depth.lastUpdateId,
+    bids: (depth.bids || []).slice(0, 10).map(([price, qty]) => ({ price: toNumber(price), qty: toNumber(qty) })),
+    asks: (depth.asks || []).slice(0, 10).map(([price, qty]) => ({ price: toNumber(price), qty: toNumber(qty) }))
+  };
+}
+
+function compactTrade(t) {
+  return {
+    id: t.id,
+    price: toNumber(t.price),
+    qty: toNumber(t.qty),
+    time: t.time,
+    isBuyerMaker: Boolean(t.isBuyerMaker)
+  };
+}
 
 exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
-  try {
-    const params = event.queryStringParameters || {};
-    const requested = String(params.symbol || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9_]/g, '');
-    const asset = TRACKED_ASSETS.find(a => a.binance === requested || a.base === requested || a.sodex === requested) || TRACKED_ASSETS[0];
-    const style = STYLE_PROFILES[params.style] ? params.style : 'intraday';
-    const interval = ['15m', '1h', '4h', '1d'].includes(params.interval) ? params.interval : '1h';
+  const params = event.queryStringParameters || {};
+  const symbol = normalizeSymbol(params.symbol);
+  const interval = normalizeInterval(params.interval);
 
-    const [tickers, klines, cgResult, trendingResult, sodexResult, sosoResult] = await Promise.allSettled([
-      fetchBinanceTickers(),
-      fetchBinanceKlines(asset.binance, interval, 160),
-      fetchCoinGeckoMarkets(),
-      fetchCoinGeckoTrending(),
-      fetchSoDEXTickers(),
-      fetchSoSoValueOptional(),
+  try {
+    const watchSymbols = Array.from(new Set([symbol, ...DEFAULT_SYMBOLS]));
+
+    const [ticker, klines, depth, trades, watchlistRaw, allTickers] = await Promise.all([
+      getJson(`/api/v3/ticker/24hr?symbol=${symbol}`),
+      getJson(`/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=80`),
+      getJson(`/api/v3/depth?symbol=${symbol}&limit=10`),
+      getJson(`/api/v3/trades?symbol=${symbol}&limit=15`),
+      Promise.all(watchSymbols.map(s => getJson(`/api/v3/ticker/24hr?symbol=${s}`).catch(() => null))),
+      getJson('/api/v3/ticker/24hr')
     ]);
 
-    if (tickers.status !== 'fulfilled') throw new Error(`Live Binance ticker failed: ${tickers.reason?.message || tickers.reason}`);
-    if (klines.status !== 'fulfilled') throw new Error(`Live Binance kline failed: ${klines.reason?.message || klines.reason}`);
+    const movers = allTickers
+      .filter(t => t.symbol && t.symbol.endsWith('USDT') && !/UPUSDT|DOWNUSDT|BULLUSDT|BEARUSDT/.test(t.symbol))
+      .map(compactTicker)
+      .sort((a, b) => Math.abs(b.priceChangePercent) - Math.abs(a.priceChangePercent))
+      .slice(0, 12);
 
-    const dashboard = buildDashboard({
-      tickers: tickers.value,
-      klines: klines.value,
-      cgMarkets: cgResult.status === 'fulfilled' ? cgResult.value : [],
-      trending: trendingResult.status === 'fulfilled' ? trendingResult.value : [],
-      sodex: sodexResult.status === 'fulfilled' ? sodexResult.value : [],
-      soso: sosoResult.status === 'fulfilled' ? sosoResult.value : { enabled: false, status: 'failed', news: [], macro: [], etf: [] },
-      style,
-      symbol: asset.binance,
+    return json(200, {
+      ok: true,
+      symbol,
+      interval,
+      updatedAt: new Date().toISOString(),
+      ticker: compactTicker(ticker),
+      candles: klines.map(compactKline),
+      depth: compactDepth(depth),
+      trades: trades.map(compactTrade).reverse(),
+      watchlist: watchlistRaw.filter(Boolean).map(compactTicker),
+      movers
     });
-
-    dashboard.errors = {
-      coingecko: cgResult.status === 'rejected' ? cgResult.reason.message : null,
-      trending: trendingResult.status === 'rejected' ? trendingResult.reason.message : null,
-      sodex: sodexResult.status === 'rejected' ? sodexResult.reason.message : null,
-      sosovalue: sosoResult.status === 'rejected' ? sosoResult.reason.message : null,
-    };
-    return json(200, dashboard);
-  } catch (err) {
+  } catch (error) {
     return json(502, {
-      error: 'LIVE_DATA_UNAVAILABLE',
-      message: err.message,
-      noMockData: true,
-      hint: 'This app intentionally does not fake data. Check Netlify function logs or API access from the deployment region.',
-    }, { 'Cache-Control': 'no-store' });
+      ok: false,
+      error: 'LIVE_MARKET_DATA_UNAVAILABLE',
+      message: error.message
+    });
   }
 };

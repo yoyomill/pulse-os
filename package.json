@@ -1,25 +1,15 @@
 {
-  "name": "pulse-wave2-os",
-  "version": "1.0.0",
+  "name": "pulse-os-clean-exchange",
+  "version": "2.0.0",
   "private": true,
-  "description": "Live ticker-board finance command center for SoSoValue Wave 2. Static frontend + Netlify Functions, no exposed API secrets.",
+  "description": "Pulse OS - clean Netlify crypto dashboard with server-routed live market data.",
   "scripts": {
-    "build": "node tools/build.js",
-    "start": "netlify dev",
-    "deploy:prod": "netlify deploy --prod --dir=dist --functions=netlify/functions"
+    "build": "node scripts/build.js",
+    "dev": "netlify dev",
+    "check": "npm run build && node scripts/check.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
-  "keywords": [
-    "sosovalue",
-    "wavehack",
-    "sodex",
-    "valuechain",
-    "coingecko",
-    "binance",
-    "on-chain-finance",
-    "netlify"
-  ],
-  "license": "MIT"
+  "devDependencies": {}
 }

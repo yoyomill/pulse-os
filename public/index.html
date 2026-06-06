@@ -3,106 +3,169 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#0b1020" />
-  <title>Pulse · SoSoValue Wave2 One-Person Finance Tool</title>
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/favicon.svg" />
+  <title>Pulse OS</title>
+  <meta name="description" content="Pulse OS crypto market dashboard" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div class="grid-bg"></div>
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark pulse-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-      <div>
-        <p class="eyebrow">SoSoValue Wave2 · SoDEX · ValueChain · AI</p>
-        <h1>Pulse</h1>
-      </div>
-    </div>
-    <div class="top-actions">
-      <button id="connectWallet" class="ghost">Connect Wallet</button>
-      <button id="refresh" class="primary">Run Live Engine</button>
-    </div>
-  </header>
-
-  <main class="layout">
-    <section class="hero card glow">
-      <div class="hero-copy">
-        <p class="eyebrow">One-Person On-Chain Finance Terminal</p>
-        <h2>Pulse</h2>
-        <div id="heroTicker" class="ticker-board" aria-live="polite">
-          <div class="ticker-head">
-            <div><span class="pulse-dot"></span><strong>Live Board</strong><small>loading market tape…</small></div>
-            <span class="tag-cyan">server-side</span>
-          </div>
-          <div class="ticker-window"><div class="ticker-track skeleton-line"></div></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div>
+          <div class="brand-name">Pulse</div>
+          <div class="brand-subtitle">Crypto Market Terminal</div>
         </div>
-        <p class="muted">A live market board that turns data into narrative, signal, risk check and paper execution. API requests run through Netlify Functions so keys are not shipped to the browser.</p>
       </div>
-      <div class="control-panel">
-        <label>Asset
-          <select id="symbol">
-            <option value="BTCUSDT">BTC/USDT</option>
-            <option value="ETHUSDT">ETH/USDT</option>
-            <option value="SOLUSDT">SOL/USDT</option>
-            <option value="BNBUSDT">BNB/USDT</option>
-            <option value="XRPUSDT">XRP/USDT</option>
-            <option value="AVAXUSDT">AVAX/USDT</option>
-            <option value="LINKUSDT">LINK/USDT</option>
-          </select>
-        </label>
-        <label>Trading Type
-          <select id="style">
-            <option value="scalping">Scalper</option>
-            <option value="intraday" selected>Intraday</option>
-            <option value="swing">Swing</option>
-            <option value="position">Position</option>
-          </select>
-        </label>
-        <label>Interval
-          <select id="interval">
+      <div class="ticker-board" id="tickerBoard">
+        <span class="ticker-item skeleton">Loading live market...</span>
+      </div>
+      <div class="top-actions">
+        <select id="symbolSelect" aria-label="Select market pair">
+          <option value="BTCUSDT">BTC/USDT</option>
+          <option value="ETHUSDT">ETH/USDT</option>
+          <option value="SOLUSDT">SOL/USDT</option>
+          <option value="BNBUSDT">BNB/USDT</option>
+          <option value="XRPUSDT">XRP/USDT</option>
+        </select>
+        <button id="refreshBtn" class="ghost-btn">Refresh</button>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="card market-watch">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Market Watch</p>
+            <h2>Favorites</h2>
+          </div>
+          <div class="tabs">
+            <button class="active">USDT</button>
+            <button>Spot</button>
+            <button>24H</button>
+          </div>
+        </div>
+        <div class="table market-table">
+          <div class="table-row table-header">
+            <span>Pair</span><span>Last Price</span><span>24h</span><span>Volume</span>
+          </div>
+          <div id="watchlistRows"></div>
+        </div>
+      </section>
+
+      <section class="card quick-trade">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Quick Trade</p>
+            <h2 id="tradePairTitle">BTC/USDT</h2>
+          </div>
+          <div class="tabs">
+            <button class="active">Spot</button>
+            <button>Futures</button>
+          </div>
+        </div>
+
+        <div class="trade-switch">
+          <button id="buyMode" class="buy active">Buy</button>
+          <button id="sellMode" class="sell">Sell</button>
+        </div>
+
+        <div class="trade-grid">
+          <label>Price
+            <div class="input-wrap"><input id="orderPrice" type="number" step="0.01" /><span>USDT</span></div>
+          </label>
+          <label>Amount
+            <div class="input-wrap"><input id="orderAmount" type="number" step="0.0001" placeholder="0.0000" /><span id="baseAsset">BTC</span></div>
+          </label>
+          <label>Order Type
+            <div class="input-wrap"><select id="orderType"><option>Limit</option><option>Market</option></select></div>
+          </label>
+          <label>Leverage
+            <div class="input-wrap"><select id="leverage"><option>1x</option><option>3x</option><option>5x</option><option>10x</option></select></div>
+          </label>
+        </div>
+
+        <div class="balance-line">
+          <span>Available</span><strong>12,456.78 USDT</strong>
+        </div>
+        <div class="balance-line muted">
+          <span>Est. Fee</span><strong id="feePreview">0.00 USDT</strong>
+        </div>
+        <button id="placeOrderBtn" class="primary-btn buy">Buy BTC</button>
+        <p class="safe-note">Practice order only. No funds are moved.</p>
+      </section>
+
+      <section class="card chart-card wide">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Live Chart</p>
+            <h2 id="chartTitle">BTC/USDT · 1H</h2>
+          </div>
+          <select id="intervalSelect">
             <option value="15m">15m</option>
             <option value="1h" selected>1h</option>
             <option value="4h">4h</option>
             <option value="1d">1d</option>
           </select>
-        </label>
-      </div>
-    </section>
+        </div>
+        <canvas id="priceChart" height="180"></canvas>
+      </section>
 
-    <section id="status" class="status-strip"></section>
+      <section class="card order-book">
+        <div class="card-head compact">
+          <div>
+            <p class="eyebrow">Order Book</p>
+            <h2 id="bookTitle">BTC/USDT</h2>
+          </div>
+          <span class="pill">0.01</span>
+        </div>
+        <div class="book-grid book-header"><span>Bid</span><span>Size</span><span>Ask</span><span>Size</span></div>
+        <div id="bookRows"></div>
+        <div class="mid-price" id="midPrice">--</div>
+      </section>
 
-    <section class="kpi-grid" id="kpis"></section>
+      <section class="card recent-trades">
+        <div class="card-head compact">
+          <div>
+            <p class="eyebrow">Recent Trades</p>
+            <h2>Feed</h2>
+          </div>
+        </div>
+        <div class="table mini-table">
+          <div class="table-row table-header"><span>Time</span><span>Price</span><span>Size</span></div>
+          <div id="tradeRows"></div>
+        </div>
+      </section>
 
-    <section class="two-col">
-      <article class="card" id="signalCard"></article>
-      <article class="card" id="chartCard"></article>
-    </section>
+      <section class="card positions wide">
+        <div class="card-head compact">
+          <div>
+            <p class="eyebrow">Portfolio</p>
+            <h2>Open Positions</h2>
+          </div>
+          <button id="clearPositions" class="ghost-btn small">Clear</button>
+        </div>
+        <div class="table positions-table">
+          <div class="table-row table-header">
+            <span>Pair</span><span>Side</span><span>Size</span><span>Entry</span><span>Mark</span><span>PnL</span>
+          </div>
+          <div id="positionRows"></div>
+        </div>
+      </section>
 
-    <section class="two-col">
-      <article class="card" id="narrativeCard"></article>
-      <article class="card" id="sentinelCard"></article>
-    </section>
+      <section class="card movers full">
+        <div class="card-head compact">
+          <div>
+            <p class="eyebrow">Top Movers</p>
+            <h2>24H Market Heat</h2>
+          </div>
+        </div>
+        <div id="moverChips" class="mover-grid"></div>
+      </section>
+    </main>
+  </div>
 
-    <section class="three-col">
-      <article class="card" id="moversCard"></article>
-      <article class="card" id="paperCard"></article>
-      <article class="card" id="chainCard"></article>
-    </section>
-
-    <section class="two-col">
-      <article class="card" id="tweetCard"></article>
-      <article class="card" id="sourceCard"></article>
-    </section>
-  </main>
-
-  <template id="loadingTpl">
-    <div class="skeleton"></div>
-    <div class="skeleton short"></div>
-    <div class="skeleton tiny"></div>
-  </template>
-
-  <div id="toast" class="toast"></div>
+  <div class="toast" id="toast"></div>
   <script src="/app.js" defer></script>
 </body>
 </html>
