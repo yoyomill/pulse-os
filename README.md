@@ -1,4 +1,4 @@
-# Pulse Wave2 OS
+# Pulse OS
 
 **One-person on-chain finance business tool** built for the SoSoValue WaveHack / Buildathon Wave 2 prompt.
 
