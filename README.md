@@ -30,7 +30,7 @@ The first screen has been rebuilt as a **Pulse live ticker board**: short name, 
 ## Local structure
 
 ```txt
-pulse-wave2-os/
+pulse-os/
 ├─ public/
 │  ├─ index.html       # static UI
 │  ├─ app.js           # frontend logic, no API secrets
